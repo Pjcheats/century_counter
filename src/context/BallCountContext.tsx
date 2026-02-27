@@ -1,10 +1,12 @@
-
 "use client";
 
-import type React from 'react'; // Ensured React is imported
+import type React from 'react';
 import { createContext, useContext, useState, useMemo, useRef, useEffect } from 'react';
 import type { Team, Player, BallDefinition as BallDefType, PottedBallStats, TurnEvent, PottedBallDetail, ActiveTurnState } from '@/types/ball-count';
 import { BALL_DEFINITIONS } from '@/config/ball-data';
+
+const TEAMS_STORAGE_KEY = 'pjcheat_tracker_teams_v1';
+const HISTORY_STORAGE_KEY = 'pjcheat_tracker_history_v1';
 
 // Helper function to find the next player's turn
 const findNextPlayerTurn = (
@@ -12,12 +14,12 @@ const findNextPlayerTurn = (
   currentTeamId: string | null,
   currentPlayerId: string | null
 ): { teamId: string; playerId: string } | null => {
-  if (!teams || teams.length === 0) return null;;
+  if (!teams || teams.length === 0) return null;
 
-  const orderedTurns: { teamId: string; playerId: string }[] = [];;
-  const maxDepth = Math.max(0, ...teams.map(t => t.players.length));;
+  const orderedTurns: { teamId: string; playerId: string }[] = [];
+  const maxDepth = Math.max(0, ...teams.map(t => t.players.length));
 
-  if (maxDepth === 0) return null;; // No players in any team
+  if (maxDepth === 0) return null; // No players in any team
 
   for (let depth = 0; depth < maxDepth; depth++) {
     for (const team of teams) {
@@ -25,30 +27,28 @@ const findNextPlayerTurn = (
         orderedTurns.push({
           teamId: team.id,
           playerId: team.players[depth].id,
-        });;
+        });
       }
     }
   }
 
-  if (orderedTurns.length === 0) return null;; // Should be caught by maxDepth check, but defensive
+  if (orderedTurns.length === 0) return null;
 
   if (!currentTeamId || !currentPlayerId) {
-    return orderedTurns[0];; // Default to the very first player if no current turn
+    return orderedTurns[0];
   }
 
   const currentIndex = orderedTurns.findIndex(
     turn => turn.teamId === currentTeamId && turn.playerId === currentPlayerId
-  );;
+  );
 
   if (currentIndex === -1) {
-    // Current player/team not found in the sequence (e.g., if player was just removed)
-    // Default to the first player in the overall sequence
-    return orderedTurns[0];;
+    return orderedTurns[0];
   }
 
-  const nextPlayerIndex = (currentIndex + 1) % orderedTurns.length;;
-  return orderedTurns[nextPlayerIndex];;
-};;
+  const nextPlayerIndex = (currentIndex + 1) % orderedTurns.length;
+  return orderedTurns[nextPlayerIndex];
+};
 
 
 const createPlayerClientSide = (name: string): Player => ({
@@ -56,7 +56,7 @@ const createPlayerClientSide = (name: string): Player => ({
   name,
   score: 0,
   pottedBallsFrequency: {},
-});;
+});
 
 const initialActiveTurnState: ActiveTurnState = {
   teamId: null,
@@ -66,7 +66,7 @@ const initialActiveTurnState: ActiveTurnState = {
   pointsThisTurn: 0,
   ballsPottedThisTurn: [],
   turnStartTime: null,
-};;
+};
 
 interface BallCountContextType {
   teams: Team[];
@@ -114,103 +114,136 @@ interface BallCountContextType {
   handleUndoLastActionInTurn: () => void;
 }
 
-const BallCountContext = createContext<BallCountContextType | undefined>(undefined);;
+const BallCountContext = createContext<BallCountContextType | undefined>(undefined);
 
 export const useBallCount = () => {
-  const context = useContext(BallCountContext);;
+  const context = useContext(BallCountContext);
   if (!context) {
-    throw new Error('useBallCount must be used within a BallCountProvider');;
+    throw new Error('useBallCount must be used within a BallCountProvider');
   }
-  return context;;
-};;
+  return context;
+};
 
 export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [teams, setTeams] = useState<Team[]>([]);;
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);;
-  const [matchHistory, setMatchHistory] = useState<TurnEvent[]>([]);;
-  const [activeTurn, setActiveTurn] = useState<ActiveTurnState>(initialActiveTurnState);;
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [matchHistory, setMatchHistory] = useState<TurnEvent[]>([]);
+  const [activeTurn, setActiveTurn] = useState<ActiveTurnState>(initialActiveTurnState);
 
-  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);;
-  const [editingTeamNameInput, setEditingTeamNameInput] = useState<string>('');;
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editingTeamNameInput, setEditingTeamNameInput] = useState<string>('');
 
-  const [editingPlayerDetails, setEditingPlayerDetails] = useState<{ teamId: string; playerId: string } | null>(null);;
-  const [editingPlayerNameInput, setEditingPlayerNameInput] = useState<string>('');;
+  const [editingPlayerDetails, setEditingPlayerDetails] = useState<{ teamId: string; playerId: string } | null>(null);
+  const [editingPlayerNameInput, setEditingPlayerNameInput] = useState<string>('');
 
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);;
-  const isLongPressTriggeredRef = useRef<boolean>(false);;
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressTriggeredRef = useRef<boolean>(false);
+  const isLoadedRef = useRef<boolean>(false);
 
   useEffect(() => {
-    const clientSideInitialTeams: Team[] = [
-      {
-        id: crypto.randomUUID(),
-        name: 'Team Alpha',
-        players: [createPlayerClientSide('Player A1'), createPlayerClientSide('Player A1')],
-        currentPlayerIndex: 0,
-      },
-      {
-        id: crypto.randomUUID(),
-        name: 'Team Bravo',
-        players: [createPlayerClientSide('Player B1'), createPlayerClientSide('Player B2')],
-        currentPlayerIndex: 0,
-      },
-    ];;
-    setTeams(clientSideInitialTeams);;
-  }, []);; 
+    const savedTeams = typeof window !== 'undefined' ? localStorage.getItem(TEAMS_STORAGE_KEY) : null;
+    const savedHistory = typeof window !== 'undefined' ? localStorage.getItem(HISTORY_STORAGE_KEY) : null;
+
+    if (savedTeams) {
+      try {
+        setTeams(JSON.parse(savedTeams));
+      } catch (e) {
+        console.error("Failed to parse saved teams", e);
+      }
+    } else {
+      const clientSideInitialTeams: Team[] = [
+        {
+          id: crypto.randomUUID(),
+          name: 'Team Alpha',
+          players: [createPlayerClientSide('Parag'), createPlayerClientSide('Ravish')],
+          currentPlayerIndex: 0,
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Team Bravo',
+          players: [createPlayerClientSide('Player B1'), createPlayerClientSide('Player B2')],
+          currentPlayerIndex: 0,
+        },
+      ];
+      setTeams(clientSideInitialTeams);
+    }
+
+    if (savedHistory) {
+      try {
+        setMatchHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error("Failed to parse saved history", e);
+      }
+    }
+    isLoadedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (isLoadedRef.current && typeof window !== 'undefined') {
+      localStorage.setItem(TEAMS_STORAGE_KEY, JSON.stringify(teams));
+    }
+  }, [teams]);
+
+  useEffect(() => {
+    if (isLoadedRef.current && typeof window !== 'undefined') {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(matchHistory));
+    }
+  }, [matchHistory]);
 
   const selectedTeam = useMemo(() => {
-    if (!selectedTeamId || teams.length === 0) return null;;
-    return teams.find(t => t.id === selectedTeamId);;
-  }, [teams, selectedTeamId]);;
+    if (!selectedTeamId || teams.length === 0) return null;
+    return teams.find(t => t.id === selectedTeamId);
+  }, [teams, selectedTeamId]);
 
   const currentPlayer = useMemo(() => {
     if (!selectedTeam || selectedTeam.players.length === 0 || selectedTeam.currentPlayerIndex < 0 || selectedTeam.currentPlayerIndex >= selectedTeam.players.length) {
-      return null;;
+      return null;
     }
-    return selectedTeam.players[selectedTeam.currentPlayerIndex];;
-  }, [selectedTeam]);;
+    return selectedTeam.players[selectedTeam.currentPlayerIndex];
+  }, [selectedTeam]);
 
 
   useEffect(() => {
     if (teams.length === 0) {
       if (selectedTeamId !== null) {
-        setSelectedTeamId(null);;
+        setSelectedTeamId(null);
       }
-      return;;
+      return;
     }
-    const selectedTeamStillExists = teams.some(team => team.id === selectedTeamId);;
+    const selectedTeamStillExists = teams.some(team => team.id === selectedTeamId);
     if (!selectedTeamId || !selectedTeamStillExists) {
       if (teams.length > 0 && teams[0].players.length > 0) {
-         const firstTeamWithPlayers = teams.find(t => t.players.length > 0);;
+         const firstTeamWithPlayers = teams.find(t => t.players.length > 0);
          if (firstTeamWithPlayers) {
-            setSelectedTeamId(firstTeamWithPlayers.id);;
+            setSelectedTeamId(firstTeamWithPlayers.id);
          } else {
-            setSelectedTeamId(teams[0].id);; 
+            setSelectedTeamId(teams[0].id);
          }
       } else if (teams.length > 0) {
-        setSelectedTeamId(teams[0].id);; 
+        setSelectedTeamId(teams[0].id);
       } else {
-        setSelectedTeamId(null);;
+        setSelectedTeamId(null);
       }
     }
-  }, [teams, selectedTeamId]);;
+  }, [teams, selectedTeamId]);
 
   useEffect(() => {
-    if (!selectedTeamId || teams.length === 0) return;; 
+    if (!selectedTeamId || teams.length === 0) return;
 
-    const teamToUpdate = teams.find(t => t.id === selectedTeamId);;
+    const teamToUpdate = teams.find(t => t.id === selectedTeamId);
     if (teamToUpdate) {
-      let newPlayerIndex = teamToUpdate.currentPlayerIndex;;
-      let indexNeedsUpdate = false;;
+      let newPlayerIndex = teamToUpdate.currentPlayerIndex;
+      let indexNeedsUpdate = false;
 
       if (teamToUpdate.players.length > 0) {
         if (newPlayerIndex < 0 || newPlayerIndex >= teamToUpdate.players.length) {
-          newPlayerIndex = Math.max(0, Math.min(teamToUpdate.players.length - 1, newPlayerIndex));;
-          indexNeedsUpdate = true;;
+          newPlayerIndex = Math.max(0, Math.min(teamToUpdate.players.length - 1, newPlayerIndex));
+          indexNeedsUpdate = true;
         }
       } else {
         if (newPlayerIndex !== 0) { 
-          newPlayerIndex = 0;;
-          indexNeedsUpdate = true;;
+          newPlayerIndex = 0;
+          indexNeedsUpdate = true;
         }
       }
 
@@ -219,25 +252,22 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           prevTeams.map(t =>
             t.id === selectedTeamId ? { ...t, currentPlayerIndex: newPlayerIndex } : t
           ) 
-        );;
+        );
       }
     }
-  }, [teams, selectedTeamId]);;
+  }, [teams, selectedTeamId]);
 
   useEffect(() => {
-    const currentP = currentPlayer;;
-    const selectedT = selectedTeam;;
-    const currentActiveTurn = activeTurn;; // Use a different name to avoid confusion with the state setter
+    const currentP = currentPlayer;
+    const selectedT = selectedTeam;
+    
+    if (currentP && selectedT) {
+      const cpId = currentP.id;
+      const stId = selectedT.id;
+      const cpName = currentP.name;
+      const stName = selectedT.name;
 
-    const cpId = currentP?.id;;
-    const stId = selectedT?.id;;
-    const cpName = currentP?.name;;
-    const stName = selectedT?.name;;
-
-
-    if (cpId && stId && cpName && stName) {
-      if (currentActiveTurn.playerId !== cpId || currentActiveTurn.teamId !== stId) {
-        // Only reset if the actual player or team has changed
+      if (activeTurn.playerId !== cpId || activeTurn.teamId !== stId) {
         setActiveTurn({
           teamId: stId,
           playerId: cpId,
@@ -246,29 +276,28 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           pointsThisTurn: 0,
           ballsPottedThisTurn: [],
           turnStartTime: Date.now(),
-        });;
+        });
       }
     } else {
-      // If no current player or team, but activeTurn still has data from a previous turn
-      if (currentActiveTurn.playerId || currentActiveTurn.pointsThisTurn > 0 || currentActiveTurn.ballsPottedThisTurn.length > 0) {
-         setActiveTurn(initialActiveTurnState);; // Reset to initial clean state
+      if (activeTurn.playerId) {
+         setActiveTurn(initialActiveTurnState);
       }
     }
-  }, [currentPlayer?.id, selectedTeam?.id, currentPlayer?.name, selectedTeam?.name, activeTurn]);;
+  }, [currentPlayer, selectedTeam, activeTurn]);
 
 
   const calculateTeamTotals = (team: Team | undefined | null) => {
-    if (!team) return { totalScore: 0, aggregatedFrequency: {} };;
-    let totalScore = 0;;
-    const aggregatedFrequency: PottedBallStats = {};;
+    if (!team) return { totalScore: 0, aggregatedFrequency: {} };
+    let totalScore = 0;
+    const aggregatedFrequency: PottedBallStats = {};
     team.players.forEach(player => {
-      totalScore += player.score;;
+      totalScore += player.score;
       Object.entries(player.pottedBallsFrequency).forEach(([ballValue, count]) => {
-        aggregatedFrequency[Number(ballValue)] = (aggregatedFrequency[Number(ballValue)] || 0) + count;;
-      });;
-    });;
-    return { totalScore, aggregatedFrequency };;
-  };;
+        aggregatedFrequency[Number(ballValue)] = (aggregatedFrequency[Number(ballValue)] || 0) + count;
+      });
+    });
+    return { totalScore, aggregatedFrequency };
+  };
   
   const handleAddTeam = (name: string = `Team ${String.fromCharCode(65 + (teams.length || 0))}`) => {
     const newTeam: Team = {
@@ -276,51 +305,51 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       name: name.trim() || `Team ${String.fromCharCode(65 + (teams.length || 0))}`,
       players: [],
       currentPlayerIndex: 0,
-    };;
-    setTeams(prevTeams => [...prevTeams, newTeam]);;
+    };
+    setTeams(prevTeams => [...prevTeams, newTeam]);
     if (teams.length === 0) { 
-      setSelectedTeamId(newTeam.id);;
+      setSelectedTeamId(newTeam.id);
     }
-  };;
+  };
 
   const handleStartEditTeamName = (team: Team) => {
-    setEditingTeamId(team.id);;
-    setEditingTeamNameInput(team.name);;
-    setEditingPlayerDetails(null);; 
-  };;
+    setEditingTeamId(team.id);
+    setEditingTeamNameInput(team.name);
+    setEditingPlayerDetails(null); 
+  };
 
   const handleSaveTeamName = (teamIdToSave: string) => {
-    if (editingTeamNameInput.trim() === '') return;;
+    if (editingTeamNameInput.trim() === '') return;
 
-    const trimmedName = editingTeamNameInput.trim();;
+    const trimmedName = editingTeamNameInput.trim();
     setTeams(prevTeams =>
       prevTeams.map(t =>
         t.id === teamIdToSave ? { ...t, name: trimmedName } : t
       ) 
-    );;
-    setEditingTeamId(null);;
-  };;
+    );
+    setEditingTeamId(null);
+  };
 
-  const handleCancelEditTeamName = () => setEditingTeamId(null);;
+  const handleCancelEditTeamName = () => setEditingTeamId(null);
 
   const handleRemoveTeam = (teamIdToRemove: string) => {
-    const updatedTeams = teams.filter(team => team.id !== teamIdToRemove);;
-    setTeams(updatedTeams);;
+    const updatedTeams = teams.filter(team => team.id !== teamIdToRemove);
+    setTeams(updatedTeams);
     if (selectedTeamId === teamIdToRemove) {
-      setSelectedTeamId(updatedTeams.length > 0 ? updatedTeams.find(t => t.id !== teamIdToRemove)?.id ?? null : null);;
+      setSelectedTeamId(updatedTeams.length > 0 ? updatedTeams.find(t => t.id !== teamIdToRemove)?.id ?? null : null);
     }
-  };;
+  };
 
   const handleStartEditPlayerName = (teamId: string, player: Player) => {
-    setEditingPlayerDetails({ teamId, playerId: player.id });;
-    setEditingPlayerNameInput(player.name);;
-    setEditingTeamId(null);; 
-  };;
+    setEditingPlayerDetails({ teamId, playerId: player.id });
+    setEditingPlayerNameInput(player.name);
+    setEditingTeamId(null); 
+  };
 
   const handleSavePlayerName = (teamId: string, playerIdToSave: string) => {
-    if (editingPlayerNameInput.trim() === '') return;;
+    if (editingPlayerNameInput.trim() === '') return;
 
-    const trimmedName = editingPlayerNameInput.trim();;
+    const trimmedName = editingPlayerNameInput.trim();
     setTeams(prevTeams =>
       prevTeams.map(t => {
         if (t.id === teamId) {
@@ -328,40 +357,37 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             ...t,
             players: t.players.map(p => {
               if (p.id === playerIdToSave) {
-                if (activeTurn.playerId === playerIdToSave) {
-                  setActiveTurn(prev => ({...prev, playerName: trimmedName}));;
-                }
-                return { ...p, name: trimmedName };;
+                return { ...p, name: trimmedName };
               }
-              return p;;
+              return p;
             }),
-          };;
+          };
         }
-        return t;;
+        return t;
       }) 
-    );;
-    setEditingPlayerDetails(null);;
-  };;
+    );
+    setEditingPlayerDetails(null);
+  };
 
-  const handleCancelEditPlayerName = () => setEditingPlayerDetails(null);;
+  const handleCancelEditPlayerName = () => setEditingPlayerDetails(null);
 
   const handleAddPlayer = (teamId: string) => {
     setTeams(prevTeams =>
       prevTeams.map(t => {
         if (t.id === teamId) {
-          const newPlayerNumber = t.players.length + 1;;
-          const newPlayer = createPlayerClientSide(`Player ${newPlayerNumber}`);;
-          const newCurrentPlayerIndex = t.players.length === 0 ? 0 : t.currentPlayerIndex;;
-          return { ...t, players: [...t.players, newPlayer], currentPlayerIndex: newCurrentPlayerIndex };;
+          const newPlayerNumber = t.players.length + 1;
+          const newPlayer = createPlayerClientSide(`Player ${newPlayerNumber}`);
+          const newCurrentPlayerIndex = t.players.length === 0 ? 0 : t.currentPlayerIndex;
+          return { ...t, players: [...t.players, newPlayer], currentPlayerIndex: newCurrentPlayerIndex };
         }
-        return t;;
+        return t;
       }) 
-    );;
-  };;
+    );
+  };
 
   const handleRemovePlayer = (teamId: string, playerIdToRemove: string) => {
-    const playerIsActiveTurn = activeTurn.playerId === playerIdToRemove;;
-    let turnToLogFromRemoval: TurnEvent | null = null;;
+    const playerIsActiveTurn = activeTurn.playerId === playerIdToRemove;
+    let turnToLogFromRemoval: TurnEvent | null = null;
 
     if (playerIsActiveTurn && activeTurn.teamId && activeTurn.playerId && activeTurn.playerName && activeTurn.teamName && activeTurn.turnStartTime) {
        turnToLogFromRemoval = {
@@ -373,54 +399,50 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         pointsScoredThisTurn: activeTurn.pointsThisTurn,
         ballsPottedThisTurn: activeTurn.ballsPottedThisTurn,
         timestamp: activeTurn.turnStartTime,
-      };;
+      };
     }
     
     if(turnToLogFromRemoval){
-      setMatchHistory(prevHistory => [turnToLogFromRemoval!, ...prevHistory]);;
+      setMatchHistory(prevHistory => [turnToLogFromRemoval!, ...prevHistory]);
     }
 
     setTeams(prevTeams =>
       prevTeams.map(t => {
         if (t.id === teamId) {
-          const playerToRemoveIndex = t.players.findIndex(p => p.id === playerIdToRemove);;
-          const updatedPlayers = t.players.filter(p => p.id !== playerIdToRemove);;
+          const playerToRemoveIndex = t.players.findIndex(p => p.id === playerIdToRemove);
+          const updatedPlayers = t.players.filter(p => p.id !== playerIdToRemove);
           
-          let newCurrentPlayerIndex = t.currentPlayerIndex;;
+          let newCurrentPlayerIndex = t.currentPlayerIndex;
           if (updatedPlayers.length === 0) {
-            newCurrentPlayerIndex = 0;; 
+            newCurrentPlayerIndex = 0; 
           } else if (playerToRemoveIndex === t.currentPlayerIndex) {
-            newCurrentPlayerIndex = Math.min(playerToRemoveIndex, updatedPlayers.length - 1);;
+            newCurrentPlayerIndex = Math.min(playerToRemoveIndex, updatedPlayers.length - 1);
           } else if (playerToRemoveIndex < t.currentPlayerIndex) {
-            newCurrentPlayerIndex = t.currentPlayerIndex - 1;;
+            newCurrentPlayerIndex = t.currentPlayerIndex - 1;
           }
-          newCurrentPlayerIndex = Math.max(0, Math.min(newCurrentPlayerIndex, updatedPlayers.length - 1));;
-          if (updatedPlayers.length === 0) newCurrentPlayerIndex = 0;; 
+          newCurrentPlayerIndex = Math.max(0, Math.min(newCurrentPlayerIndex, updatedPlayers.length - 1));
+          if (updatedPlayers.length === 0) newCurrentPlayerIndex = 0; 
 
-          return { ...t, players: updatedPlayers, currentPlayerIndex: newCurrentPlayerIndex };;
+          return { ...t, players: updatedPlayers, currentPlayerIndex: newCurrentPlayerIndex };
         }
-        return t;;
+        return t;
       }) 
-    );;
+    );
     if (playerIsActiveTurn) {
         const nextPlayer = findNextPlayerTurn(teams.map(team => 
           team.id === teamId ? { ...team, players: team.players.filter(p => p.id !== playerIdToRemove) } : team
-        ), activeTurn.teamId, null);; 
+        ), activeTurn.teamId, null); 
         if (nextPlayer) {
-            handleSetCurrentPlayer(nextPlayer.teamId, nextPlayer.playerId, false);; 
+            handleSetCurrentPlayer(nextPlayer.teamId, nextPlayer.playerId, false); 
         } else {
-            setActiveTurn(initialActiveTurnState);;
+            setActiveTurn(initialActiveTurnState);
         }
     }
-  };;
+  };
 
   const handleSetCurrentPlayer = (targetTeamId: string, targetPlayerId: string, logPreviousTurnIfAny: boolean = true) => {
     if (logPreviousTurnIfAny && activeTurn.playerId && activeTurn.teamId && activeTurn.playerName && activeTurn.teamName && activeTurn.turnStartTime) {
-        const isSamePlayerAndTeam = activeTurn.teamId === targetTeamId && activeTurn.playerId === targetPlayerId;;
-        // Log the turn if it's a different player OR if it's the same player but they had actions (pointsThisTurn != 0 or ballsPottedThisTurn.length > 0)
-        // This ensures "empty" turns by re-clicking the same player are not logged, but turns with actions are.
-        // However, if it's the same player, the activeTurn details are NOT reset by the useEffect, so this logic is a bit complex.
-        // The primary case for logging is when the player/team actually changes.
+        const isSamePlayerAndTeam = activeTurn.teamId === targetTeamId && activeTurn.playerId === targetPlayerId;
         if (!isSamePlayerAndTeam) { 
             const turnEvent: TurnEvent = {
                 id: crypto.randomUUID(),
@@ -431,11 +453,9 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 pointsScoredThisTurn: activeTurn.pointsThisTurn,
                 ballsPottedThisTurn: activeTurn.ballsPottedThisTurn,
                 timestamp: activeTurn.turnStartTime,
-            };;
-            // Only log if there were points or balls, or if it's a forced log (e.g. player removed)
-            // For standard turn changes, we log if there were actions.
-            if (turnEvent.pointsScoredThisTurn !== 0 || turnEvent.ballsPottedThisTurn.length > 0 || !logPreviousTurnIfAny) {
-                 setMatchHistory(prevHistory => [turnEvent, ...prevHistory]);;
+            };
+            if (turnEvent.pointsScoredThisTurn !== 0 || turnEvent.ballsPottedThisTurn.length > 0) {
+                 setMatchHistory(prevHistory => [turnEvent, ...prevHistory]);
             }
         }
     }
@@ -443,29 +463,28 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setTeams(prevTeams =>
       prevTeams.map(t => {
         if (t.id === targetTeamId) {
-          const playerIndex = t.players.findIndex(p => p.id === targetPlayerId);;
+          const playerIndex = t.players.findIndex(p => p.id === targetPlayerId);
           if (playerIndex !== -1) {
-            return { ...t, currentPlayerIndex: playerIndex };;
+            return { ...t, currentPlayerIndex: playerIndex };
           }
         }
-        return t;;
+        return t;
       }) 
-    );;
+    );
 
     if (selectedTeamId !== targetTeamId) {
-      setSelectedTeamId(targetTeamId);;
+      setSelectedTeamId(targetTeamId);
     }
-    // ActiveTurn state will be reset by the useEffect hook listening to currentPlayer.id changes
-  };;
+  };
 
   const handleBallClick = (ballClicked: BallDefType) => {
     if (!selectedTeam || !currentPlayer || selectedTeam.players.length === 0 || !selectedTeamId) {
-      return;;
+      return;
     }
-    const ballDefinition = BALL_DEFINITIONS.find(b => b.value === ballClicked.value);;
+    const ballDefinition = BALL_DEFINITIONS.find(b => b.value === ballClicked.value);
     if (!ballDefinition) {
-      console.error("Ball definition not found for value:", ballClicked.value);;
-      return;;
+      console.error("Ball definition not found for value:", ballClicked.value);
+      return;
     }
     setTeams(prevTeams => prevTeams.map(team => {
       if (team.id === selectedTeamId) {
@@ -473,18 +492,18 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           ...team,
           players: team.players.map(player => {
             if (player.id === currentPlayer.id) {
-              const updatedPlayer = { ...player };;
-              updatedPlayer.pottedBallsFrequency = { ...(player.pottedBallsFrequency || {}) };;
-              updatedPlayer.pottedBallsFrequency[ballDefinition.value] = (updatedPlayer.pottedBallsFrequency[ballDefinition.value] || 0) + 1;;
-              updatedPlayer.score += ballDefinition.value;;
-              return updatedPlayer;;
+              const updatedPlayer = { ...player };
+              updatedPlayer.pottedBallsFrequency = { ...(player.pottedBallsFrequency || {}) };
+              updatedPlayer.pottedBallsFrequency[ballDefinition.value] = (updatedPlayer.pottedBallsFrequency[ballDefinition.value] || 0) + 1;
+              updatedPlayer.score += ballDefinition.value;
+              return updatedPlayer;
             }
-            return player;;
+            return player;
           })
-        };;
+        };
       }
-      return team;;
-    }));;
+      return team;
+    }));
 
     setActiveTurn(prev => ({
       ...prev,
@@ -493,23 +512,22 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ...prev.ballsPottedThisTurn,
         { ballValue: ballDefinition.value, ballName: ballDefinition.name, type: 'score' }
       ]
-    }));;
-  };;
+    }));
+  };
 
   const handlePointerDown = (ball: BallDefType, event?: React.SyntheticEvent<HTMLButtonElement>) => {
-    if (event && event.type.startsWith('touch')) event.preventDefault();;
-    isLongPressTriggeredRef.current = false;; 
+    if (event && event.type.startsWith('touch')) event.preventDefault();
+    isLongPressTriggeredRef.current = false; 
     longPressTimerRef.current = setTimeout(() => {
-      isLongPressTriggeredRef.current = true;; 
+      isLongPressTriggeredRef.current = true; 
       if (!teams || !selectedTeam || !currentPlayer || selectedTeam.players.length === 0 || !selectedTeamId || !activeTurn.teamId || !activeTurn.playerId || !activeTurn.playerName || !activeTurn.teamName || !activeTurn.turnStartTime) {
-        return;;
+        return;
       }
-      const ballDefinition = BALL_DEFINITIONS.find(b => b.value === ball.value);;
-      if (!ballDefinition) return;;
+      const ballDefinition = BALL_DEFINITIONS.find(b => b.value === ball.value);
+      if (!ballDefinition) return;
       
-      const foulPenalty = Math.max(4, ballDefinition.value);;
+      const foulPenalty = Math.max(4, ballDefinition.value);
       
-      // Construct the TurnEvent with foul data immediately
       const turnEventDataForFoul: TurnEvent = {
         id: crypto.randomUUID(),
         teamId: activeTurn.teamId,
@@ -522,58 +540,53 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           { ballValue: ballDefinition.value, ballName: ballDefinition.name, type: 'foul' }
         ],
         timestamp: activeTurn.turnStartTime, 
-      };;
-      setMatchHistory(prevHistory => [turnEventDataForFoul, ...prevHistory]);;
+      };
+      setMatchHistory(prevHistory => [turnEventDataForFoul, ...prevHistory]);
 
-      // Update player's global score
       setTeams(prevTeams => prevTeams.map(team => {
         if (team.id === selectedTeamId) {
           return {
             ...team,
             players: team.players.map(p => {
               if (p.id === currentPlayer.id) {
-                return { ...p, score: p.score - foulPenalty };;
+                return { ...p, score: p.score - foulPenalty };
               }
-              return p;;
+              return p;
             })
-          };;
+          };
         }
-        return team;;
-      }));;
+        return team;
+      }));
 
-      // End the turn
-      const nextTurnDetails = findNextPlayerTurn(teams, selectedTeamId, currentPlayer.id);;
+      const nextTurnDetails = findNextPlayerTurn(teams, selectedTeamId, currentPlayer.id);
       if (nextTurnDetails) {
-        // Pass false for logPreviousTurnIfAny because we've just logged it
-        handleSetCurrentPlayer(nextTurnDetails.teamId, nextTurnDetails.playerId, false);; 
+        handleSetCurrentPlayer(nextTurnDetails.teamId, nextTurnDetails.playerId, false); 
       } else {
-         // No next player, reset activeTurn (should be handled by useEffect for currentPlayer change)
-         // For safety, explicitly reset if no next player can be determined
-         setActiveTurn(initialActiveTurnState);; 
+         setActiveTurn(initialActiveTurnState); 
       }
-    }, 700);; 
-  };;
+    }, 700);
+  };
 
   const handlePointerUp = (ball: BallDefType, event?: React.SyntheticEvent<HTMLButtonElement>) => {
     if (event && event.type.startsWith('touch') && !isLongPressTriggeredRef.current) {
-       event.preventDefault();;
+       event.preventDefault();
     }
     if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);;
-      longPressTimerRef.current = null;;
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
     if (!isLongPressTriggeredRef.current) { 
-      handleBallClick(ball);;
+      handleBallClick(ball);
     }
-    isLongPressTriggeredRef.current = false;; 
-  };;
+    isLongPressTriggeredRef.current = false; 
+  };
 
   const handlePointerLeave = () => {
     if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);;
-      longPressTimerRef.current = null;;
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
-  };;
+  };
 
   const handleClearAllScores = () => {
     setTeams(prevTeams =>
@@ -585,30 +598,29 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           pottedBallsFrequency: {},
         })),
       }))
-    );;
-    setMatchHistory([]);;
-    setActiveTurn(initialActiveTurnState);;
-  };;
+    );
+    setMatchHistory([]);
+    setActiveTurn(initialActiveTurnState);
+  };
 
   const handleUndoLastActionInTurn = () => {
     if (!activeTurn.playerId || activeTurn.ballsPottedThisTurn.length === 0) {
-      return; // No active turn or no actions to undo
+      return; 
     }
 
     const lastAction = activeTurn.ballsPottedThisTurn[activeTurn.ballsPottedThisTurn.length - 1];
-    let pointsToAdjustReal = 0; // For player's total score
-    let pointsToAdjustTurn = 0; // For activeTurn.pointsThisTurn
+    let pointsToAdjustReal = 0; 
+    let pointsToAdjustTurn = 0; 
 
     if (lastAction.type === 'score') {
       pointsToAdjustReal = -lastAction.ballValue;
       pointsToAdjustTurn = -lastAction.ballValue;
     } else if (lastAction.type === 'foul') {
       const foulPenalty = Math.max(4, lastAction.ballValue);
-      pointsToAdjustReal = foulPenalty; // Add back the penalty to player's score
-      pointsToAdjustTurn = foulPenalty; // Add back the penalty to turn score
+      pointsToAdjustReal = foulPenalty; 
+      pointsToAdjustTurn = foulPenalty; 
     }
 
-    // Update player's main score
     setTeams(prevTeams =>
       prevTeams.map(team => {
         if (team.id === activeTurn.teamId) {
@@ -620,7 +632,6 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                   ...player,
                   score: player.score + pointsToAdjustReal,
                 };
-                // Adjust pottedBallsFrequency only if it was a score being undone
                 if (lastAction.type === 'score') {
                   updatedPlayer.pottedBallsFrequency = {
                     ...(updatedPlayer.pottedBallsFrequency || {}),
@@ -641,11 +652,10 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       })
     );
 
-    // Update activeTurn state
     setActiveTurn(prev => ({
       ...prev,
       pointsThisTurn: prev.pointsThisTurn + pointsToAdjustTurn,
-      ballsPottedThisTurn: prev.ballsPottedThisTurn.slice(0, -1), // Remove the last action
+      ballsPottedThisTurn: prev.ballsPottedThisTurn.slice(0, -1), 
     }));
   };
 
@@ -680,10 +690,7 @@ export const BallCountProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     findNextPlayerTurn,
     handleClearAllScores,
     handleUndoLastActionInTurn,
-  };;
+  };
 
-  return <BallCountContext.Provider value={value}>{children}</BallCountContext.Provider>;;
+  return <BallCountContext.Provider value={value}>{children}</BallCountContext.Provider>;
 };
-    
-
-    
