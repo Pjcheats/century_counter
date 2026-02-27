@@ -1,4 +1,3 @@
-
 // Client-side component for the main scoreboard page.
 // This comment is added to try and resolve a potential subtle parsing issue.
 "use client";
@@ -54,7 +53,7 @@ export default function ScoreboardClientPage() {
   return (
     <div className="flex flex-col min-h-screen p-3 sm:p-4 md:p-5 items-center font-sans">
       <header className="mb-4 sm:mb-6 text-center animate-fade-in-up">
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-primary tracking-tight">Pjcheat's Century Tracker</h1>
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-primary tracking-tight">Pjcheat's Century Tracker</h1>
         <p className="text-muted-foreground mt-1 text-lg sm:text-xl md:text-2xl">Track points per player turn.</p>
       </header>
 
@@ -95,12 +94,12 @@ export default function ScoreboardClientPage() {
                         key={team.id} 
                         className={`rounded-lg p-2.5 sm:p-3 border animate-fade-in ${selectedTeamId === team.id ? 'ring-2 ring-primary border-primary' : 'border-border bg-card'}`}
                       >
-                        <div className="flex flex-row justify-between items-center mb-3 sm:mb-4"> 
-                          <CardTitle className="flex items-center text-2xl sm:text-3xl md:text-4xl font-bold text-primary truncate mr-2" title={team.name}>
+                        <div className="flex flex-row justify-between items-center mb-4 sm:mb-6"> 
+                          <CardTitle className="flex items-center text-xl sm:text-2xl md:text-4xl font-bold text-primary truncate mr-2" title={team.name}>
                             <Users2 className="mr-1.5 h-8 w-8 sm:h-9 md:h-10 shrink-0" />
                             <span className="truncate">{team.name}</span>
                           </CardTitle>
-                          <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary whitespace-nowrap">
+                          <p className="text-xl sm:text-2xl md:text-4xl font-bold text-primary whitespace-nowrap">
                             <AnimatedScore targetValue={totalScore} className="inline-block" />
                           </p>
                         </div>
@@ -111,10 +110,16 @@ export default function ScoreboardClientPage() {
                                 className={`p-2.5 sm:p-3 rounded-md flex items-center justify-between animate-fade-in ${currentPlayer?.id === player.id && selectedTeamId === team.id ? 'ring-2 ring-accent bg-primary/10' : 'bg-muted border border-border/50'}`}
                               >
                                 <div>
-                                    <p className="text-xl sm:text-2xl md:text-3xl font-semibold truncate" title={player.name}>{player.name}</p>
-                                    <p className="text-base sm:text-lg text-muted-foreground flex items-center">
-                                      <Target className="mr-1 h-7 w-7 sm:h-8 text-red-500"/> Reds - <AnimatedScore targetValue={player.pottedBallsFrequency[15] || 0} className="font-medium text-foreground inline-block ml-1 text-base sm:text-lg" />
-                                    </p>
+                                    <p className="text-2xl sm:text-3xl md:text-4xl font-semibold truncate" title={player.name}>{player.name}</p>
+                                    <div className="text-base sm:text-lg text-muted-foreground flex items-center flex-wrap gap-x-3">
+                                      <span className="flex items-center">
+                                        Score: <AnimatedScore targetValue={player.score} className="font-medium text-foreground ml-1" />
+                                      </span>
+                                      <span className="text-muted-foreground/30">•</span>
+                                      <span className="flex items-center">
+                                        <Target className="mr-1 h-7 w-7 sm:h-8 text-red-500"/> Reds: <AnimatedScore targetValue={player.pottedBallsFrequency[15] || 0} className="font-medium text-foreground inline-block ml-1" />
+                                      </span>
+                                    </div>
                                 </div>
                                 {team.players.length > 0 && (
                                    currentPlayer?.id === player.id && selectedTeamId === team.id ? (
@@ -150,10 +155,10 @@ export default function ScoreboardClientPage() {
                               {selectedTeamId === team.id && currentPlayer?.id === player.id && (
                                 <div className="mt-3 pt-3 border-t border-border animate-fade-in-up">
                                   <div className="flex items-center justify-between mb-2">
-                                    <p className="text-xl sm:text-2xl font-medium text-foreground"> 
+                                    <p className="text-lg sm:text-xl font-medium text-foreground"> 
                                       Break: <AnimatedScore 
                                         targetValue={activeTurn.pointsThisTurn} 
-                                        className="inline-block font-semibold text-xl sm:text-2xl text-accent" 
+                                        className="inline-block font-semibold text-lg sm:text-xl text-accent" 
                                       />
                                     </p>
                                     {activeTurn.ballsPottedThisTurn.length > 0 && (
@@ -288,23 +293,3 @@ export default function ScoreboardClientPage() {
     </div>
   );
 }
-    
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
