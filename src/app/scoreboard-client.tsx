@@ -1,5 +1,3 @@
-// Client-side component for the main scoreboard page.
-// This comment is added to try and resolve a potential subtle parsing issue.
 "use client";
 
 import React from 'react';
@@ -20,11 +18,11 @@ export default function ScoreboardClientPage() {
     currentPlayer,
     selectedTeam,
     handleSetCurrentPlayer,
+    handleNextTurn,
     handlePointerDown,
     handlePointerUp,
     handlePointerLeave,
     calculateTeamTotals,
-    findNextPlayerTurn,
     handleUndoLastActionInTurn,
   } = useBallCount();
 
@@ -49,7 +47,6 @@ export default function ScoreboardClientPage() {
     );
   }
 
-  // Component's JSX rendering starts here.
   return (
     <div className="flex flex-col min-h-screen p-3 sm:p-4 md:p-5 items-center font-sans">
       <header className="mb-4 sm:mb-6 text-center animate-fade-in-up">
@@ -94,7 +91,7 @@ export default function ScoreboardClientPage() {
                         key={team.id} 
                         className={`rounded-lg p-2.5 sm:p-3 border animate-fade-in ${selectedTeamId === team.id ? 'ring-2 ring-primary border-primary' : 'border-border bg-card'}`}
                       >
-                        <div className="flex flex-row justify-between items-center mb-4 sm:mb-6"> 
+                        <div className="flex flex-row justify-between items-center mb-6 sm:mb-8"> 
                           <CardTitle className="flex items-center text-xl sm:text-2xl md:text-4xl font-bold text-primary truncate mr-2" title={team.name}>
                             <Users2 className="mr-1.5 h-8 w-8 sm:h-9 md:h-10 shrink-0" />
                             <span className="truncate">{team.name}</span>
@@ -127,14 +124,7 @@ export default function ScoreboardClientPage() {
                                       variant="destructive"
                                       size="sm" 
                                       className="ml-auto text-base sm:text-lg h-10 sm:h-11 px-4 sm:px-5"
-                                      onClick={() => {
-                                        if (currentPlayer && findNextPlayerTurn) {
-                                          const nextPlayerDetails = findNextPlayerTurn(teams, selectedTeamId, currentPlayer.id);
-                                          if (nextPlayerDetails) {
-                                            handleSetCurrentPlayer(nextPlayerDetails.teamId, nextPlayerDetails.playerId);
-                                          }
-                                        }
-                                      }}
+                                      onClick={handleNextTurn}
                                     >
                                       <span className="sm:hidden">Next</span>
                                       <span className="hidden sm:inline">Next Turn</span>
@@ -183,7 +173,7 @@ export default function ScoreboardClientPage() {
                                           if (!ballDef || !ballDef.IconComponent) return null;
                                           return (
                                             <div
-                                              key={`${ballDetail.ballValue}-${index}-turn-active-${Date.now()}`} 
+                                              key={`${ballDetail.ballValue}-${index}`} 
                                               className={`w-6 h-6 relative ${ballDetail.type === 'foul' ? 'ring-1 ring-destructive ring-offset-1 ring-offset-background/10 rounded-full opacity-70' : ''}`}
                                               title={ballDetail.type === 'foul' ? `${ballDef.name} (Fouled)` : `${ballDef.name} (${ballDef.value} pts)`}
                                             >
